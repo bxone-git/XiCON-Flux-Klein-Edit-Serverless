@@ -44,7 +44,9 @@ RUN cd /ComfyUI/custom_nodes && \
 RUN mkdir -p /ComfyUI/models/diffusion_models \
     /ComfyUI/models/text_encoders \
     /ComfyUI/models/clip \
-    /ComfyUI/models/vae
+    /ComfyUI/models/vae \
+    /ComfyUI/input \
+    /ComfyUI/output
 
 # Cleanup to save space
 RUN rm -rf /root/.cache /tmp/* /var/tmp/*
