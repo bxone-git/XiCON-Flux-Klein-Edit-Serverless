@@ -49,7 +49,7 @@ RUN mkdir -p /ComfyUI/models/diffusion_models \
 
 COPY . .
 RUN mkdir -p /ComfyUI/user/default/ComfyUI-Manager
-COPY config.ini /ComfyUI/user/default/ComfyUI-Manager/config.ini 2>/dev/null || true
+COPY config.ini /ComfyUI/user/default/ComfyUI-Manager/config.ini
 RUN chmod +x /entrypoint.sh
 RUN chmod +x /setup_netvolume.sh 2>/dev/null || true
 
