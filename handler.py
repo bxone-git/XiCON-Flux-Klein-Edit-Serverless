@@ -29,6 +29,14 @@ def queue_prompt(prompt):
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode('utf-8')
+        except Exception:
+            pass
+        logger.error(f"Failed to queue prompt: HTTP {e.code} - {error_body}")
+        raise RuntimeError(f"ComfyUI rejected workflow (HTTP {e.code}): {error_body[:500]}")
     except urllib.error.URLError as e:
         logger.error(f"Failed to queue prompt: {e}")
         raise
@@ -174,7 +182,8 @@ def get_image_input(job_input, task_id):
     if 'image_url' in job_input:
         return process_input(job_input['image_url'], COMFY_INPUT_DIR, f"{task_id}_input")
     elif 'image_base64' in job_input:
-        return process_input(job_input['image_base64'], COMFY_INPUT_DIR, f"{task_id}_input")
+        # Directly save base64 - no need for format detection heuristic
+        return save_base64_to_file(job_input['image_base64'], COMFY_INPUT_DIR, f"{task_id}_input")
     elif 'image_path' in job_input:
         return process_input(job_input['image_path'], COMFY_INPUT_DIR, f"{task_id}_input")
     elif 'image' in job_input:
