@@ -22,9 +22,12 @@ COMFY_INPUT_DIR = "/ComfyUI/input"
 WORKFLOW_PATH = "/workflow_api.json"
 
 
-def queue_prompt(prompt):
+def queue_prompt(prompt, client_id=None):
     """Submit a workflow to ComfyUI via HTTP POST."""
-    data = json.dumps({"prompt": prompt}).encode('utf-8')
+    payload = {"prompt": prompt}
+    if client_id:
+        payload["client_id"] = client_id
+    data = json.dumps(payload).encode('utf-8')
     req = urllib.request.Request(f"{COMFY_API_URL}/prompt", data=data, headers={'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
@@ -224,15 +227,16 @@ def wait_for_comfyui_http(timeout=180):
 
 
 def connect_websocket_with_retry(max_attempts=36, retry_delay=5):
-    """Connect to ComfyUI WebSocket with retry logic."""
-    ws_url = f"ws://{SERVER_ADDRESS}:8188/ws?clientId={str(uuid.uuid4())}"
+    """Connect to ComfyUI WebSocket with retry logic. Returns (ws, client_id)."""
+    client_id = str(uuid.uuid4())
+    ws_url = f"ws://{SERVER_ADDRESS}:8188/ws?clientId={client_id}"
 
     for attempt in range(max_attempts):
         try:
             logger.info(f"Attempting WebSocket connection (attempt {attempt + 1}/{max_attempts})")
             ws = websocket.create_connection(ws_url, timeout=600)
-            logger.info("WebSocket connected successfully")
-            return ws
+            logger.info(f"WebSocket connected successfully (clientId={client_id})")
+            return ws, client_id
         except Exception as e:
             logger.warning(f"WebSocket connection failed: {e}")
             if attempt < max_attempts - 1:
@@ -294,11 +298,11 @@ def handler(job):
         wait_for_comfyui_http(timeout=180)
 
         # Connect WebSocket
-        ws = connect_websocket_with_retry(max_attempts=36, retry_delay=5)
+        ws, client_id = connect_websocket_with_retry(max_attempts=36, retry_delay=5)
 
         # Queue workflow
         logger.info("Submitting workflow to ComfyUI...")
-        prompt_response = queue_prompt(workflow)
+        prompt_response = queue_prompt(workflow, client_id=client_id)
         prompt_id = prompt_response.get('prompt_id')
 
         if not prompt_id:
