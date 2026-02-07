@@ -44,7 +44,7 @@ check_model() {
 }
 
 echo "Verifying models..."
-check_model "$NETVOLUME/models/diffusion_models/flux-2-klein-9b-fp8.safetensors" "Flux 2 Klein 9B FP8"
+check_model "$NETVOLUME/models/diffusion_models/flux-2-klein-base-9b-fp8.safetensors" "Flux 2 Klein 9B FP8"
 check_model "$NETVOLUME/models/text_encoders/qwen_3_8b_fp8mixed.safetensors" "Qwen 3.8B CLIP"
 check_model "$NETVOLUME/models/vae/flux2-vae.safetensors" "Flux2 VAE"
 
