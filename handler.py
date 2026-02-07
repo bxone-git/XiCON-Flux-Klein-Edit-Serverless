@@ -230,7 +230,7 @@ def connect_websocket_with_retry(max_attempts=36, retry_delay=5):
     for attempt in range(max_attempts):
         try:
             logger.info(f"Attempting WebSocket connection (attempt {attempt + 1}/{max_attempts})")
-            ws = websocket.create_connection(ws_url, timeout=10)
+            ws = websocket.create_connection(ws_url, timeout=600)
             logger.info("WebSocket connected successfully")
             return ws
         except Exception as e:
