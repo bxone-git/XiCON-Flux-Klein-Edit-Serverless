@@ -1,35 +1,42 @@
-# Models (Network Volume에서 로드)
-*.safetensors
-*.ckpt
-*.pth
-*.bin
+# Env & Secrets
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
-*.egg-info/
-
-# Logs
-logs/
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
 
 # IDE
 .vscode/
 .idea/
 
-# OMC
+# OMC state
 .omc/
+
+# Claude local
+.claude/
+
+# Models
+*.safetensors
+*.ckpt
+*.pth
+*.bin
+
+# Logs
+logs/
+*.log
 
 # Temp
 tmp/
 temp/
+test_output*
 
-# Env
-.env
-.env.local
+# Subdirectories with their own git repos (pushed to GitHub separately)
+I2I_MultiAngle/
+T2V_LTX2/

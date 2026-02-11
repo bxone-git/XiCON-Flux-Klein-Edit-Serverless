@@ -1,0 +1,822 @@
+{
+  "name": "XiCON_KLEIN_I2I_V1",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "klein_i2i",
+        "options": {}
+      },
+      "id": "webhook_1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "klein_i2i"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  gj.id as job_id,\n  gj.work_id,\n  w.*,\n  t.id as template_id,\n  t.template_name,\n  t.is_active\nFROM generation_jobs gj\nINNER JOIN works w ON gj.work_id = w.id\nLEFT JOIN templates t ON w.template_id = t.id\nWHERE \n  gj.status = 'pending'\n  AND t.id = '82064257-1bef-45d8-a6ba-715f33c887cc'\n  AND t.is_active = true\nORDER BY gj.priority DESC, gj.created_at ASC;"
+      },
+      "id": "sql_query_1",
+      "name": "Execute SQL query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        460,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "oK2dPeiNRFB9Po8Q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition_1",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_jobs_exist",
+      "name": "IF Jobs Exist",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "generation_jobs",
+        "operation": "update",
+        "tableId": "generation_jobs",
+        "filterType": "manual",
+        "matchConditions": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "value": "={{ $('Execute SQL query').item.json.job_id }}"
+            }
+          ]
+        },
+        "dataToUpdate": {
+          "values": {
+            "status": "taken",
+            "taken_at": "={{ new Date().toISOString() }}"
+          }
+        }
+      },
+      "id": "mark_as_taken",
+      "name": "Mark as Taken",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o-mini",
+        "options": {
+          "systemMessage": "You translate Korean user prompts to English for image generation. Output only the translated prompt, nothing else."
+        },
+        "text": "={{ $('Execute SQL query').item.json.input_data.prompt || 'a beautiful landscape' }}"
+      },
+      "id": "ai_agent_translate",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        200
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "id": "bT4c2DPjiOHofzLQ",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sqlData = $('Execute SQL query').item.json;\nconst inputData = sqlData.input_data || {};\n\nlet translatedPrompt = '';\ntry {\n  translatedPrompt = $('AI Agent').item.json.output || $('AI Agent').item.json.text || '';\n} catch (e) {}\n\nconst prompt = translatedPrompt || inputData.prompt || 'a beautiful landscape';\nconst seed = inputData.seed ?? 0;\n// Klein 9B model defaults (distilled, optimized for fast inference)\nconst steps = inputData.steps ?? 4;\nconst cfg = inputData.cfg ?? 1.0;\nconst megapixels = inputData.megapixels ?? 1.0;\n\n// I2I requires image input - either URL or base64\nconst imageUrl = inputData.image_url || '';\nconst imageBase64 = inputData.image_base64 || '';\n\nconst payload = {\n  prompt: prompt,\n  seed: seed,\n  steps: steps,\n  cfg: cfg,\n  megapixels: megapixels\n};\n\n// Add image input (prefer URL over base64)\nif (imageUrl) {\n  payload.image_url = imageUrl;\n} else if (imageBase64) {\n  payload.image_base64 = imageBase64;\n}\n\nreturn {\n  json: {\n    input: payload,\n    work_id: sqlData.id,\n    generation_metadata: {\n      prompt: prompt,\n      original_prompt: inputData.prompt || '',\n      model: 'XiCON_KLEIN_I2I',\n      width: 768,\n      height: 1024,\n      seed: seed,\n      steps: steps,\n      cfg: cfg,\n      megapixels: megapixels,\n      has_image_input: !!(imageUrl || imageBase64),\n      submitted_at: new Date().toISOString()\n    }\n  }\n};"
+      },
+      "id": "build_payload",
+      "name": "Build ComfyUI Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.runpod.ai/v2/p6tv6t2d0vjt9c/run",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "runpodApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "input",
+              "value": "={{ JSON.stringify($json.input) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "submit_to_runpod",
+      "name": "Submit to RunPod",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        200
+      ],
+      "credentials": {
+        "runpodApi": {
+          "id": "VnSRamgasodbgGr1",
+          "name": "runpod_serverless_api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "works",
+        "operation": "update",
+        "tableId": "works",
+        "filterType": "manual",
+        "matchConditions": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "value": "={{ $('Build ComfyUI Payload').item.json.work_id }}"
+            }
+          ]
+        },
+        "dataToUpdate": {
+          "values": {
+            "status": "processing",
+            "runpod_job_id": "={{ $json.id }}",
+            "generation_metadata": "={{ JSON.stringify($('Build ComfyUI Payload').item.json.generation_metadata) }}"
+          }
+        }
+      },
+      "id": "update_works_processing",
+      "name": "Update Works to Processing",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait_5s",
+      "name": "Wait 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        200
+      ],
+      "webhookId": "wait_webhook"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.runpod.ai/v2/p6tv6t2d0vjt9c/status/{{ $('Submit to RunPod').item.json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "runpodApi",
+        "options": {}
+      },
+      "id": "check_status",
+      "name": "Check RunPod Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        200
+      ],
+      "credentials": {
+        "runpodApi": {
+          "id": "VnSRamgasodbgGr1",
+          "name": "runpod_serverless_api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.status }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "COMPLETED",
+              "output": 0
+            },
+            {
+              "value2": "FAILED",
+              "output": 1
+            },
+            {
+              "value2": "CANCELLED",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 3
+      },
+      "id": "switch_status",
+      "name": "Switch (Status)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const statusData = $('Check RunPod Status').item.json;\nconst workData = $('Build ComfyUI Payload').item.json;\n\nconst imageBase64 = statusData.output?.image || '';\nconst filename = 'output.png';\n\nreturn {\n  json: {\n    image_base64: imageBase64,\n    filename: filename,\n    work_id: workData.work_id,\n    user_id: $('Execute SQL query').item.json.user_id,\n    runpod_job_id: statusData.id\n  }\n};"
+      },
+      "id": "extract_image_data",
+      "name": "Extract Image Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toFile",
+        "sourceProperty": "image_base64",
+        "options": {
+          "fileName": "={{ $json.filename }}",
+          "mimeType": "image/png"
+        }
+      },
+      "id": "convert_to_file",
+      "name": "Convert to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2880,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://inwtsfxxunljfznahixt.supabase.co/storage/v1/object/works/{{ $json.user_id }}/{{ $json.work_id }}/{{ $json.filename }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "value": "={{ $binary.data }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "id": "upload_to_storage",
+      "name": "Upload to Storage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        80
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2d2J6D3c7qf3JGGP",
+          "name": "Supabase_Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const extractData = $('Extract Image Data').item.json;\n\nconst imageUrl = `https://inwtsfxxunljfznahixt.supabase.co/storage/v1/object/public/works/${extractData.user_id}/${extractData.work_id}/${extractData.filename}`;\n\nreturn {\n  json: {\n    image_url: imageUrl,\n    work_id: extractData.work_id,\n    user_id: extractData.user_id,\n    filename: extractData.filename\n  }\n};"
+      },
+      "id": "build_image_url",
+      "name": "Build Image URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3320,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify({\n  model: 'openai/gpt-4o-mini',\n  messages: [\n    {\n      role: 'system',\n      content: '이미지를 보고 한국어로 짧은 제목을 생성해주세요. 10자 이내로 작성하세요.'\n    },\n    {\n      role: 'user',\n      content: [\n        {\n          type: 'image_url',\n          image_url: {\n            url: $json.image_url\n          }\n        },\n        {\n          type: 'text',\n          text: '이 이미지를 설명하는 짧은 제목을 생성해주세요.'\n        }\n      ]\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "call_vision_api",
+      "name": "Call Vision API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3540,
+        80
+      ],
+      "credentials": {
+        "openRouterApi": {
+          "id": "p7Cd2ie6AJ6kAF33",
+          "name": "OpenRouter_XiCON_2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const visionData = $('Call Vision API').item.json;\nconst urlData = $('Build Image URL').item.json;\n\nlet title = '';\ntry {\n  title = visionData.choices[0].message.content || '';\n  title = title.trim().substring(0, 10);\n} catch (e) {\n  title = 'I2I 작품';\n}\n\nreturn {\n  json: {\n    title: title,\n    work_id: urlData.work_id,\n    image_url: urlData.image_url,\n    filename: urlData.filename\n  }\n};"
+      },
+      "id": "extract_title",
+      "name": "Code in JavaScript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "files",
+        "operation": "insert",
+        "tableId": "files",
+        "dataToInsert": {
+          "values": {
+            "bucket_id": "works",
+            "path": "={{ $('Build Image URL').item.json.user_id }}/{{ $json.work_id }}/{{ $json.filename }}",
+            "width": 768,
+            "height": 1024,
+            "user_id": "={{ $('Build Image URL').item.json.user_id }}"
+          }
+        },
+        "options": {
+          "returnFields": "id,file_url"
+        }
+      },
+      "id": "create_files_record",
+      "name": "Create Files Record",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3980,
+        80
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const filesData = $('Create Files Record').item.json;\nconst titleData = $('Code in JavaScript').item.json;\n\nreturn {\n  json: {\n    file_id: filesData.id,\n    work_id: titleData.work_id,\n    title: titleData.title,\n    output_data_json: {\n      image_url: titleData.image_url,\n      filename: titleData.filename\n    }\n  }\n};"
+      },
+      "id": "prepare_update_data",
+      "name": "Prepare Update Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "works",
+        "operation": "update",
+        "tableId": "works",
+        "filterType": "manual",
+        "matchConditions": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "value": "={{ $json.work_id }}"
+            }
+          ]
+        },
+        "dataToUpdate": {
+          "values": {
+            "status": "completed",
+            "output_file_id": "={{ $json.file_id }}",
+            "thumbnail_file_id": "={{ $json.file_id }}",
+            "title": "={{ $json.title }}",
+            "output_data_json": "={{ JSON.stringify($json.output_data_json) }}",
+            "tags": "={{ JSON.stringify(['I2I', 'Image_to_Image', 'AI생성']) }}",
+            "completed_at": "={{ new Date().toISOString() }}"
+          }
+        }
+      },
+      "id": "update_works_completed",
+      "name": "Update Works to Completed",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        4420,
+        80
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "works",
+        "operation": "update",
+        "tableId": "works",
+        "filterType": "manual",
+        "matchConditions": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "value": "={{ $('Build ComfyUI Payload').item.json.work_id }}"
+            }
+          ]
+        },
+        "dataToUpdate": {
+          "values": {
+            "status": "failed",
+            "error_message": "={{ $('Check RunPod Status').item.json.error || 'RunPod job failed' }}",
+            "failed_at": "={{ new Date().toISOString() }}"
+          }
+        }
+      },
+      "id": "update_works_failed",
+      "name": "Update Works to Failed",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "works",
+        "operation": "update",
+        "tableId": "works",
+        "filterType": "manual",
+        "matchConditions": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "value": "={{ $('Build ComfyUI Payload').item.json.work_id }}"
+            }
+          ]
+        },
+        "dataToUpdate": {
+          "values": {
+            "status": "cancelled",
+            "cancelled_at": "={{ new Date().toISOString() }}"
+          }
+        }
+      },
+      "id": "update_works_cancelled",
+      "name": "Update Works to Cancelled",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        300
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $('Check RunPod Status').all().map(item => ({\n  json: {\n    ...item.json,\n    work_id: $('Build ComfyUI Payload').item.json.work_id\n  }\n}));"
+      },
+      "id": "preserve_input_data",
+      "name": "Preserve Input Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Execute SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SQL query": {
+      "main": [
+        [
+          {
+            "node": "IF Jobs Exist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Jobs Exist": {
+      "main": [
+        [
+          {
+            "node": "Mark as Taken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Taken": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Build ComfyUI Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build ComfyUI Payload": {
+      "main": [
+        [
+          {
+            "node": "Submit to RunPod",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit to RunPod": {
+      "main": [
+        [
+          {
+            "node": "Update Works to Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Works to Processing": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s": {
+      "main": [
+        [
+          {
+            "node": "Check RunPod Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check RunPod Status": {
+      "main": [
+        [
+          {
+            "node": "Switch (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch (Status)": {
+      "main": [
+        [
+          {
+            "node": "Extract Image Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Works to Failed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Works to Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preserve Input Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Image Data": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Upload to Storage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Storage": {
+      "main": [
+        [
+          {
+            "node": "Build Image URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Image URL": {
+      "main": [
+        [
+          {
+            "node": "Call Vision API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Vision API": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Create Files Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Files Record": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update Data": {
+      "main": [
+        [
+          {
+            "node": "Update Works to Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve Input Data": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

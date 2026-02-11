@@ -1,0 +1,1035 @@
+{
+  "name": "XiCON_KLEIN_I2I_V1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "klein_i2i",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-1136, -96],
+      "id": "805b162b-1b5f-4715-881a-f59756d26101",
+      "name": "Webhook",
+      "webhookId": "klein-i2i"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 업로드된 이미지의 공개 URL 생성\nconst userId = $('Execute a SQL query1').first().json.user_id;\nconst workId = $('Extract Image Data1').first().json.work_id;\nconst filename = $('Extract Image Data1').first().json.filename;\n\nconst imageUrl = `https://inwtsfxxunljfznahixt.supabase.co/storage/v1/object/public/works/${userId}/${workId}/${filename}`;\n\nreturn {\n  json: {\n    image_url: imageUrl,\n    work_id: workId,\n    user_id: userId,\n    filename: filename\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-48, 112],
+      "id": "9837c427-daba-4f2c-8b5a-1e2918827cc0",
+      "name": "Build Image URL"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Vision API 응답에서 title 추출\nlet title = \"AI 생성 이미지\";\n\ntry {\n  const content = $json.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  title = (parsed.title || \"AI 생성 이미지\").substring(0, 10);\n} catch (e) {\n  console.log('Title parse error:', e.message);\n}\n\nreturn {\n  json: {\n    title: title,\n    // 이전 데이터 유지\n    image_url: $('Build Image URL').first().json.image_url,\n    work_id: $('Build Image URL').first().json.work_id,\n    user_id: $('Build Image URL').first().json.user_id\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [272, 112],
+      "id": "403d2c55-ac01-40b7-b31f-b2220fb7ebd3",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "file_id",
+              "name": "file_id",
+              "value": "={{ $json.file_id }}",
+              "type": "string"
+            },
+            {
+              "id": "work_id",
+              "name": "work_id",
+              "value": "={{ $json.work_id }}",
+              "type": "string"
+            },
+            {
+              "id": "output_data_json",
+              "name": "output_data_json",
+              "value": "={{ $('Build ComfyUI Payload1').all()[$itemIndex].json.generation_metadata }}",
+              "type": "string"
+            },
+            {
+              "id": "d6805889-1691-4ca8-884b-fdecc4efd585",
+              "name": "title",
+              "value": "={{ $('Code in JavaScript').item.json.title }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [592, 112],
+      "id": "9179b8a6-eb4d-4d61-b83d-cd48dcfc81e1",
+      "name": "Prepare Update Data1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    gj.id as job_id,\n    gj.work_id,\n    w.*,\n    t.id as template_id,\n    t.template_name,\n    t.is_active\n\nFROM generation_jobs gj\nINNER JOIN works w ON gj.work_id = w.id\nLEFT JOIN templates t ON w.template_id = t.id\n\nWHERE\n    gj.id = '{{ $json.body.record.id }}'\n    AND w.template_id = '82064257-1bef-45d8-a6ba-715f33c887cc'\n    AND t.is_active = true\n\nORDER BY gj.priority DESC, gj.created_at ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [-960, -96],
+      "id": "365f494d-3210-4274-88ea-3fd411e57296",
+      "name": "Execute a SQL query1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "oK2dPeiNRFB9Po8Q",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "openai/gpt-4o-mini",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [-352, -224],
+      "id": "cf05da30-ace1-455b-aa6c-bec588c181a1",
+      "name": "OpenRouter Chat Model1",
+      "credentials": {
+        "openRouterApi": {
+          "id": "bT4c2DPjiOHofzLQ",
+          "name": "OpenRouter account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Execute a SQL query1').item.json.input_data.prompt }}",
+        "options": {
+          "systemMessage": "You are a prompt translator for AI image generation. The user will provide an image description in Korean. Your task is to:\n1. Translate the Korean prompt to English\n2. Enhance it with descriptive details suitable for Flux AI image generation model\n3. Output ONLY valid JSON in this exact format: {\"prompt\": \"your enhanced English prompt here\"}\n\nIMPORTANT:\n- Always output valid JSON only, no other text\n- Keep the enhanced prompt under 200 words\n- Preserve the user's original intent\n- Add quality enhancing terms like 'high quality', 'detailed', '8k' where appropriate\n- If the input is already in English, still enhance it and output the JSON format"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [-464, -96],
+      "id": "8c38ab86-2e95-4c5e-80d2-da7f18bfe169",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "works",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Execute a SQL query1').item.json.work_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "cancelled"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-560, 416],
+      "id": "044dae47-bd17-4971-94b1-3a7b41632a41",
+      "name": "Update Works to Cancelled1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "works",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Execute a SQL query1').item.json.work_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "failed"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-560, 272],
+      "id": "a56e4979-3266-44bd-a0d6-bd15f9326a7c",
+      "name": "Update Works to Failed1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "works",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Extract Image Data1').item.json.work_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "completed"
+            },
+            {
+              "fieldId": "output_file_id",
+              "fieldValue": "={{ $('Create Files Record1').item.json.id }}"
+            },
+            {
+              "fieldId": "output_data",
+              "fieldValue": "={{ $json.output_data_json }}"
+            },
+            {
+              "fieldId": "thumbnail_file_id",
+              "fieldValue": "={{ $('Create Files Record1').item.json.id }}"
+            },
+            {
+              "fieldId": "tags",
+              "fieldValue": "{\"I2I\", \"Image_to_Image\", \"AI생성\"}"
+            },
+            {
+              "fieldId": "title",
+              "fieldValue": "={{ $json.title }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [752, 112],
+      "id": "e1b7c3f0-3747-412b-9ea3-1e53439f1fa1",
+      "name": "Update Works to Completed1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "files",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "bucket_id",
+              "fieldValue": "=works"
+            },
+            {
+              "fieldId": "file_path",
+              "fieldValue": "={{ $('Execute a SQL query1').item.json.user_id }}/{{ $('Extract Image Data1').item.json.work_id }}/{{ $('Extract Image Data1').item.json.filename }}"
+            },
+            {
+              "fieldId": "file_name",
+              "fieldValue": "={{ $('Extract Image Data1').item.json.filename }}"
+            },
+            {
+              "fieldId": "file_size",
+              "fieldValue": "={{ $('Upload to Storage1').item.json.size || 0 }}"
+            },
+            {
+              "fieldId": "file_type",
+              "fieldValue": "=image/png"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ $('Extract Image Data1').item.json.user_id }}"
+            },
+            {
+              "fieldId": "work_id",
+              "fieldValue": "={{ $('Extract Image Data1').item.json.work_id }}"
+            },
+            {
+              "fieldId": "file_id",
+              "fieldValue": "={{ $('Upload to Storage1').item.json.Id }}"
+            },
+            {
+              "fieldId": "width",
+              "fieldValue": "=768"
+            },
+            {
+              "fieldId": "height",
+              "fieldValue": "=1024"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [432, 112],
+      "id": "8dcc0c23-5e65-484c-9c43-99c8b9b595de",
+      "name": "Create Files Record1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://inwtsfxxunljfznahixt.supabase.co/storage/v1/object/works/{{ $('Execute a SQL query1').item.json.user_id }}/{{ $('Execute a SQL query1').item.json.work_id }}/{{ $('Extract Image Data1').item.json.filename }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "image/png"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-208, 112],
+      "id": "ecbc3d43-f80b-4ebd-aded-34bc28b319c7",
+      "name": "Upload to Storage1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2d2J6D3c7qf3JGGP",
+          "name": "Supabase_Role"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "image_base64",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [-384, 112],
+      "id": "a91012bf-3553-4306-9797-3771c45601fa",
+      "name": "Convert to File1",
+      "retryOnFail": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "image_base64",
+              "name": "image_base64",
+              "value": "={{ $json.output.image }}",
+              "type": "string"
+            },
+            {
+              "id": "filename",
+              "name": "filename",
+              "value": "={{ $('Execute a SQL query1').item.json.user_id }}/{{ $('Execute a SQL query1').item.json.work_id }}/output.png",
+              "type": "string"
+            },
+            {
+              "id": "work_id",
+              "name": "work_id",
+              "value": "={{ $('Execute a SQL query1').item.json.work_id }}",
+              "type": "string"
+            },
+            {
+              "id": "user_id",
+              "name": "user_id",
+              "value": "={{ $('Execute a SQL query1').item.json.user_id }}",
+              "type": "string"
+            },
+            {
+              "id": "runpod_job_id",
+              "name": "runpod_job_id",
+              "value": "={{ $('Submit to RunPod1').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "4ae3fc1a-90ed-42f9-9528-f3828f5bc2f2",
+              "name": "project_id",
+              "value": "={{ $('Execute a SQL query1').item.json.project_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-560, 112],
+      "id": "e7b0fe61-4e9d-44f3-9908-ad82db292cdc",
+      "name": "Extract Image Data1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "work_id",
+              "name": "work_id",
+              "value": "={{ $('Execute a SQL query1').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "runpod_job_id",
+              "name": "runpod_job_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "user_id",
+              "name": "user_id",
+              "value": "={{ $('Execute a SQL query1').item.json.user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-560, 576],
+      "id": "9732c5e8-d1d7-40e8-a804-8c4c513bbd9b",
+      "name": "Preserve Input Data1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [-1104, 112],
+      "id": "4b49a836-7746-4ee4-9c10-cfadaa03702c",
+      "name": "Wait 5s1",
+      "webhookId": "wait-image-edit"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "COMPLETED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "completed-condition"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "completed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "failed-condition",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "FAILED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "cancelled-condition",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "CANCELLED",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancelled"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [-768, 112],
+      "id": "18c55c97-8271-4b79-9b2c-c62a1a84d084",
+      "name": "Switch (Status)1"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.runpod.ai/v2/p6tv6t2d0vjt9c/status/{{ $json.runpod_job_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-944, 112],
+      "id": "3f92bee9-30a5-4f11-afc9-677a65356a65",
+      "name": "Check RunPod Status1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VnSRamgasodbgGr1",
+          "name": "runpod_serverless_api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "works",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Execute a SQL query1').item.json.id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "processing"
+            },
+            {
+              "fieldId": "runpod_job_id",
+              "fieldValue": "={{ $json.id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [128, -96],
+      "id": "2a5a9f1f-cd80-48cf-a4fe-43fc23cd2cb6",
+      "name": "Update Works to Processing1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.runpod.ai/v2/p6tv6t2d0vjt9c/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ input: $json.input }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-32, -96],
+      "id": "497470a6-0be0-4943-ab06-6f5b52e80755",
+      "name": "Submit to RunPod1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VnSRamgasodbgGr1",
+          "name": "runpod_serverless_api"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// XiCON KLEIN I2I - Payload Builder (v1: image-to-image)\n// ============================================================\n\nconst sqlData = $('Execute a SQL query1').item.json;\nconst inputData = sqlData.input_data || {};\n\n// Parse AI Agent output (JSON string -> object)\nlet aiOutput = {};\ntry {\n  const agentText = $('AI Agent1').item.json.output || $('AI Agent1').item.json.text || '';\n  // Strip markdown code blocks if present\n  const cleanedText = agentText.replace(/```json\\s*/g, '').replace(/```\\s*/g, '');\n  const jsonMatch = cleanedText.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    aiOutput = JSON.parse(jsonMatch[0]);\n  }\n} catch (e) {\n  // Fallback to raw user input if AI parsing fails\n}\n\n// Use AI-translated English prompt, fall back to raw user input\nconst prompt = aiOutput.prompt || inputData.prompt || 'A beautiful landscape photograph';\n\n// Seed handling (0 = random)\nconst seed = (inputData.seed === undefined || inputData.seed === null || inputData.seed === 0)\n  ? 0\n  : inputData.seed;\n\n// Image input handling\nconst imageUrl = inputData.image_url || '';\nconst imageBase64 = inputData.image_base64 || '';\nconst megapixels = inputData.megapixels ?? 1.0;\n\nconst payload = {\n  prompt: prompt,\n  seed: seed,\n  steps: 4,\n  cfg: 1.0,\n  megapixels: megapixels\n};\n\nif (imageUrl) {\n  payload.image_url = imageUrl;\n} else if (imageBase64) {\n  payload.image_base64 = imageBase64;\n}\n\nreturn {\n  json: {\n    input: payload,\n    work_id: sqlData.id,\n    generation_metadata: {\n      prompt: prompt,\n      original_prompt: inputData.prompt || '',\n      model: 'XiCON_KLEIN_I2I',\n      megapixels: megapixels,\n      steps: 4,\n      cfg: 1.0,\n      seed: seed,\n      has_image_input: !!(imageUrl || imageBase64),\n      submitted_at: new Date().toISOString()\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-192, -96],
+      "id": "ec743aae-b4cc-481e-9e71-f3e268590bad",
+      "name": "Build ComfyUI Payload1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "generation_jobs",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $('Execute a SQL query1').item.json.job_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "taken"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-624, -96],
+      "id": "75b4b559-ab52-47d1-9c64-8abff17b4e45",
+      "name": "Mark as Taken1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "CSWlnQ927dKwfJoO",
+          "name": "Supabase_XICON(TBD)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-jobs-exist",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-800, -96],
+      "id": "26110ce0-fd16-4614-8be0-e76b6a58f4ee",
+      "name": "IF Jobs Exist1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "HTTP-Referer\t",
+              "value": "https://xicon.co.kr"
+            },
+            {
+              "name": "X-Title\t",
+              "value": "XiCON Title Generator"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: 'openai/gpt-4o-mini',\n  messages: [\n    { \n      role: 'system', \n      content: '이미지를 분석하고 한국어 제목을 10자 이하로 생성하세요. JSON 형식으로만 출력: {\"title\": \"제목\"}' \n    },\n    { \n      role: 'user', \n      content: [\n        { type: 'text', text: '이 이미지에 어울리는 한국어 제목을 생성해주세요.' },\n        { type: 'image_url', image_url: { url: $json.image_url } }\n      ]\n    }\n  ],\n  max_tokens: 50,\n  response_format: { type: 'json_object' }\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [112, 112],
+      "id": "1bbb4981-db6f-48c3-bc7b-57a93909305e",
+      "name": "Call Vision API",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "p7Cd2ie6AJ6kAF33",
+          "name": "OpenRouter_XiCON_2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobId = $('Webhook').item.json.body?.record?.id || 'unknown';\nconsole.log(`⏭️ Skipping: No job found for ID ${jobId}. Already processed or doesn't match template 82064257-1bef-45d8-a6ba-715f33c887cc`);\n\nreturn {\n  json: {\n    status: \"skipped\",\n    reason: \"no_job_found\",\n    job_id: jobId,\n    template_id: \"82064257-1bef-45d8-a6ba-715f33c887cc\",\n    message: \"Job already processed, taken by another worker, or doesn't match template filter\"\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-800, 128],
+      "id": "a3f7b8c2-9d4e-5f6a-b7c8-d9e0f1a2b3c4",
+      "name": "Log No Jobs Found",
+      "alwaysOutputData": true,
+      "continueOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-600, 128],
+      "id": "noop-no-jobs-id",
+      "name": "NoOp"
+    }
+  ],
+  "connections": {
+    "Build Image URL": {
+      "main": [
+        [
+          {
+            "node": "Call Vision API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Create Files Record1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update Data1": {
+      "main": [
+        [
+          {
+            "node": "Update Works to Completed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query1": {
+      "main": [
+        [
+          {
+            "node": "IF Jobs Exist1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Build ComfyUI Payload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Files Record1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Storage1": {
+      "main": [
+        [
+          {
+            "node": "Build Image URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Upload to Storage1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Works to Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Image Data1": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve Input Data1": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s1": {
+      "main": [
+        [
+          {
+            "node": "Check RunPod Status1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch (Status)1": {
+      "main": [
+        [
+          {
+            "node": "Extract Image Data1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Works to Failed1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Works to Cancelled1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preserve Input Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check RunPod Status1": {
+      "main": [
+        [
+          {
+            "node": "Switch (Status)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Works to Processing1": {
+      "main": [
+        [
+          {
+            "node": "Wait 5s1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit to RunPod1": {
+      "main": [
+        [
+          {
+            "node": "Update Works to Processing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build ComfyUI Payload1": {
+      "main": [
+        [
+          {
+            "node": "Submit to RunPod1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Taken1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Jobs Exist1": {
+      "main": [
+        [
+          {
+            "node": "Mark as Taken1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log No Jobs Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log No Jobs Found": {
+      "main": [
+        [
+          {
+            "node": "NoOp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Vision API": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}
